@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>手書き数式グラファー</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="toolbar">
+  <div class="tool-group">
+    <button class="tool-btn" id="btn-pen" data-tool="pen" title="ペン">✏️ ペン</button>
+    <button class="tool-btn" id="btn-eraser" data-tool="eraser" title="消しゴム">🧹 消しゴム</button>
+    <button class="tool-btn" id="btn-rect" data-tool="rect" title="矩形選択">▭ 矩形選択</button>
+    <button class="tool-btn" id="btn-lasso" data-tool="lasso" title="投げ縄選択">➰ 投げ縄選択</button>
+  </div>
+
+  <div class="tool-group">
+    <button class="tool-btn action" id="btn-recognize" title="選択範囲を認識" disabled>🔍 数式認識</button>
+    <button class="tool-btn" id="btn-clear-ink" title="手書きを消去">🗑️ 手書き消去</button>
+  </div>
+
+  <div class="tool-group">
+    <button class="tool-btn" id="btn-reset-view" title="グラフ表示をリセット">🎯 グラフ操作リセット</button>
+    <button class="tool-btn" id="btn-clear-graph" title="グラフの直線を全消去">📉 グラフ消去</button>
+  </div>
+
+  <div class="tool-group tool-group-right">
+    <span id="status-text" class="status-text"></span>
+    <button class="tool-btn" id="btn-api-key" title="Gemini APIキー設定">🔑 APIキー設定</button>
+  </div>
+</header>
+
+<main id="workspace">
+  <section id="left-pane" class="pane">
+    <div class="pane-label">手書き数式エリア</div>
+    <div class="canvas-wrap">
+      <canvas id="ink-canvas"></canvas>
+      <canvas id="overlay-canvas"></canvas>
+    </div>
+    <div id="selection-actions" class="selection-actions hidden">
+      <button id="btn-confirm-select" class="pill-btn confirm">この範囲を認識する</button>
+      <button id="btn-cancel-select" class="pill-btn cancel">選択解除</button>
+    </div>
+  </section>
+
+  <section id="right-pane" class="pane">
+    <div class="pane-label">グラフエリア</div>
+    <div class="canvas-wrap">
+      <canvas id="graph-canvas"></canvas>
+      <div id="graph-empty-msg" class="empty-msg">左側で数式を手書きし、選択→「数式認識」を押すとここに直線が表示されます。</div>
+    </div>
+    <div id="formula-panel" class="formula-panel"></div>
+  </section>
+</main>
+
+<!-- API Key modal -->
+<div id="api-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2>Gemini APIキー設定</h2>
+    <p class="modal-desc">
+      Google AI Studio で発行した Gemini APIキーを入力してください。<br>
+      キーはこの端末の LocalStorage にのみ保存され、サーバーには送信されません。
+    </p>
+    <input type="password" id="api-key-input" placeholder="AIza...">
+    <label class="show-key-label">
+      <input type="checkbox" id="toggle-key-visibility"> キーを表示する
+    </label>
+    <div class="modal-actions">
+      <button id="btn-save-key" class="pill-btn confirm">保存</button>
+      <button id="btn-clear-key" class="pill-btn cancel">削除</button>
+      <button id="btn-close-modal" class="pill-btn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div id="loading-overlay" class="modal-backdrop hidden">
+  <div class="spinner-box">
+    <div class="spinner"></div>
+    <div>Gemini に問い合わせ中...</div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

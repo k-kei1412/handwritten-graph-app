@@ -608,13 +608,23 @@ function drawGraph() {
   }
 
   // lines + handles
+  // margin (in world units) so the line is drawn a bit past the edges —
+  // avoids a visible cut-off tip when panning, since it's an infinite line, not a segment
+  const marginX = (wRight - wLeft) * 0.05;
+  const marginY = (wTop - wBottom) * 0.05;
   for (const line of lines) {
-    graphCtx.strokeStyle = line.color;
-    graphCtx.lineWidth = 3;
-    graphCtx.beginPath();
-    graphCtx.moveTo(screenX(line.p1.x), screenY(line.p1.y));
-    graphCtx.lineTo(screenX(line.p2.x), screenY(line.p2.y));
-    graphCtx.stroke();
+    const clipped = clipLineToWorldRect(
+      line.a, line.b, line.c,
+      wLeft - marginX, wRight + marginX, wBottom - marginY, wTop + marginY
+    );
+    if (clipped) {
+      graphCtx.strokeStyle = line.color;
+      graphCtx.lineWidth = 3;
+      graphCtx.beginPath();
+      graphCtx.moveTo(screenX(clipped[0].x), screenY(clipped[0].y));
+      graphCtx.lineTo(screenX(clipped[1].x), screenY(clipped[1].y));
+      graphCtx.stroke();
+    }
 
     for (const p of [line.p1, line.p2]) {
       graphCtx.beginPath();

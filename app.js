@@ -581,30 +581,45 @@ function drawGraph() {
   }
   graphCtx.stroke();
 
-  // axes
+  // axes — screenY(0)/screenX(0) can land far outside the canvas after panning
+  // (e.g. the x-axis scrolled out of view); guard against drawing/text calls at
+  // such extreme coordinates since some browsers (notably Safari/WebKit) can
+  // corrupt canvas rendering when asked to draw at very large coordinates
+  const axisY = screenY(0), axisX = screenX(0);
+  const xAxisVisible = axisY >= -1000 && axisY <= H + 1000;
+  const yAxisVisible = axisX >= -1000 && axisX <= W + 1000;
+
   graphCtx.strokeStyle = '#6a6f78';
   graphCtx.lineWidth = 1.5;
   graphCtx.beginPath();
-  graphCtx.moveTo(0, Math.round(screenY(0)) + 0.5);
-  graphCtx.lineTo(W, Math.round(screenY(0)) + 0.5);
-  graphCtx.moveTo(Math.round(screenX(0)) + 0.5, 0);
-  graphCtx.lineTo(Math.round(screenX(0)) + 0.5, H);
+  if (xAxisVisible) {
+    graphCtx.moveTo(0, Math.round(axisY) + 0.5);
+    graphCtx.lineTo(W, Math.round(axisY) + 0.5);
+  }
+  if (yAxisVisible) {
+    graphCtx.moveTo(Math.round(axisX) + 0.5, 0);
+    graphCtx.lineTo(Math.round(axisX) + 0.5, H);
+  }
   graphCtx.stroke();
 
   // axis labels
   graphCtx.fillStyle = '#8b909a';
   graphCtx.font = '11px -apple-system, sans-serif';
-  graphCtx.textAlign = 'center';
-  graphCtx.textBaseline = 'top';
-  for (let x = startX; x <= wRight; x += step) {
-    if (Math.abs(x) < step * 1e-6) continue;
-    graphCtx.fillText(fmtNum(x), screenX(x), screenY(0) + 4);
+  if (xAxisVisible) {
+    graphCtx.textAlign = 'center';
+    graphCtx.textBaseline = 'top';
+    for (let x = startX; x <= wRight; x += step) {
+      if (Math.abs(x) < step * 1e-6) continue;
+      graphCtx.fillText(fmtNum(x), screenX(x), axisY + 4);
+    }
   }
-  graphCtx.textAlign = 'right';
-  graphCtx.textBaseline = 'middle';
-  for (let y = startY; y <= wTop; y += step) {
-    if (Math.abs(y) < step * 1e-6) continue;
-    graphCtx.fillText(fmtNum(y), screenX(0) - 6, screenY(y));
+  if (yAxisVisible) {
+    graphCtx.textAlign = 'right';
+    graphCtx.textBaseline = 'middle';
+    for (let y = startY; y <= wTop; y += step) {
+      if (Math.abs(y) < step * 1e-6) continue;
+      graphCtx.fillText(fmtNum(y), axisX - 6, screenY(y));
+    }
   }
 
   // lines + handles
@@ -627,8 +642,13 @@ function drawGraph() {
     }
 
     for (const p of [line.p1, line.p2]) {
+      const hx = screenX(p.x), hy = screenY(p.y);
+      // guard against extreme off-screen coordinates after panning far away —
+      // some browsers (notably Safari/WebKit) can corrupt canvas rendering
+      // when asked to draw shapes at very large coordinates
+      if (hx < -1000 || hx > W + 1000 || hy < -1000 || hy > H + 1000) continue;
       graphCtx.beginPath();
-      graphCtx.arc(screenX(p.x), screenY(p.y), 9, 0, Math.PI * 2);
+      graphCtx.arc(hx, hy, 9, 0, Math.PI * 2);
       graphCtx.fillStyle = '#16181c';
       graphCtx.fill();
       graphCtx.lineWidth = 3;
@@ -684,7 +704,10 @@ rightWrap.addEventListener('pointermove', (e) => {
   activePointers.set(e.pointerId, pos);
 
   if (dragTarget) {
-    dragTarget.line[dragTarget.which] = { x: worldX(pos.x), y: worldY(pos.y) };
+    const step = niceStep(view.scale);
+    const wx = Math.round(worldX(pos.x) / step) * step;
+    const wy = Math.round(worldY(pos.y) / step) * step;
+    dragTarget.line[dragTarget.which] = { x: wx, y: wy };
     recomputeCoeffs(dragTarget.line);
     drawGraph();
     updateFormulaItemDOM(dragTarget.line);

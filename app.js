@@ -551,6 +551,22 @@ function updateFormulaItemDOM(line) {
   item.querySelector('.formula-sub').textContent = sub;
 }
 
+let graphRedrawScheduled = false;
+function scheduleGraphRedraw() {
+  // During a touch drag, pointermove can fire many times per visual frame
+  // (iPad touch sampling is often faster than the 60Hz display refresh).
+  // Calling drawGraph() synchronously on every event lets Safari/WebKit start
+  // compositing a new canvas frame before the previous one finished, which is
+  // what produces the smeared/repeated "ghost" artifacts seen while panning.
+  // Coalescing to at most one drawGraph() per requestAnimationFrame fixes it.
+  if (graphRedrawScheduled) return;
+  graphRedrawScheduled = true;
+  requestAnimationFrame(() => {
+    graphRedrawScheduled = false;
+    drawGraph();
+  });
+}
+
 function drawGraph() {
   graphCtx.setTransform(graphDpr, 0, 0, graphDpr, 0, 0);
   const rect = rightWrap.getBoundingClientRect();
@@ -709,7 +725,7 @@ rightWrap.addEventListener('pointermove', (e) => {
     const wy = Math.round(worldY(pos.y) / step) * step;
     dragTarget.line[dragTarget.which] = { x: wx, y: wy };
     recomputeCoeffs(dragTarget.line);
-    drawGraph();
+    scheduleGraphRedraw();
     updateFormulaItemDOM(dragTarget.line);
   } else if (activePointers.size === 2 && pinchState) {
     const pts = Array.from(activePointers.values());
@@ -724,11 +740,11 @@ rightWrap.addEventListener('pointermove', (e) => {
     view.panY += (newMid.y - pinchState.prevMid.y);
     pinchState.prevDist = newDist;
     pinchState.prevMid = newMid;
-    drawGraph();
+    scheduleGraphRedraw();
   } else if (panState) {
     view.panX = panState.startPanX + (pos.x - panState.startScreen.x);
     view.panY = panState.startPanY + (pos.y - panState.startScreen.y);
-    drawGraph();
+    scheduleGraphRedraw();
   }
 });
 
@@ -757,7 +773,7 @@ rightWrap.addEventListener('wheel', (e) => {
   view.scale = clamp(view.scale * factor, 8, 500);
   view.panX = pos.x - wx * view.scale;
   view.panY = pos.y + wy * view.scale;
-  drawGraph();
+  scheduleGraphRedraw();
 }, { passive: false });
 
 document.getElementById('btn-reset-view').addEventListener('click', () => {

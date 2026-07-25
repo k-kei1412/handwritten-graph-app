@@ -638,7 +638,8 @@ function drawGraph() {
     }
   }
 
-  // lines + handles
+  // lines — no endpoint handles: slope is fixed once a line is recognized,
+  // the only interaction is grabbing the line itself to translate it.
   // margin (in world units) so the line is drawn a bit past the edges —
   // avoids a visible cut-off tip when panning, since it's an infinite line, not a segment
   const marginX = (wRight - wLeft) * 0.05;
@@ -656,51 +657,22 @@ function drawGraph() {
       graphCtx.lineTo(screenX(clipped[1].x), screenY(clipped[1].y));
       graphCtx.stroke();
     }
-
-    for (const p of [line.p1, line.p2]) {
-      const hx = screenX(p.x), hy = screenY(p.y);
-      // guard against extreme off-screen coordinates after panning far away —
-      // some browsers (notably Safari/WebKit) can corrupt canvas rendering
-      // when asked to draw shapes at very large coordinates
-      if (hx < -1000 || hx > W + 1000 || hy < -1000 || hy > H + 1000) continue;
-      graphCtx.beginPath();
-      graphCtx.arc(hx, hy, 9, 0, Math.PI * 2);
-      graphCtx.fillStyle = '#16181c';
-      graphCtx.fill();
-      graphCtx.lineWidth = 3;
-      graphCtx.strokeStyle = line.color;
-      graphCtx.stroke();
-    }
   }
 }
 
-/* ---- graph interaction: pan / pinch-zoom / drag handle ---- */
+/* ---- graph interaction: pan / pinch-zoom / drag line ---- */
 
 const activePointers = new Map(); // pointerId -> {x,y}
-let dragTarget = null; // {line, which}
+let dragTarget = null; // {line, startWorld, origP1, origP2}
 let panState = null; // {startScreen, startPanX, startPanY}
 let pinchState = null; // {prevDist, prevMid}
 
-function hitTestHandle(pos) {
-  const HIT_R = 16;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    for (const which of ['p1', 'p2']) {
-      const p = line[which];
-      const sp = { x: screenX(p.x), y: screenY(p.y) };
-      if (dist(pos, sp) <= HIT_R) return { line, which };
-    }
-  }
-  return null;
-}
-
-// Hit-tests the line itself (not its endpoint handles), so it can be grabbed
-// and translated as a whole without changing its slope. Distance is computed
+// Hit-tests the line itself (there are no endpoint handles). Distance is computed
 // in world space and converted to screen pixels via view.scale — screenX/screenY
 // are a uniform scale (plus a y-flip), which preserves distances up to that
 // single scale factor, so this stays accurate at any zoom level.
 function hitTestLineBody(pos) {
-  const HIT_PX = 12;
+  const HIT_PX = 18;
   const wx = worldX(pos.x), wy = worldY(pos.y);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
@@ -720,22 +692,16 @@ rightWrap.addEventListener('pointerdown', (e) => {
   activePointers.set(e.pointerId, pos);
 
   if (activePointers.size === 1) {
-    const hit = hitTestHandle(pos);
-    if (hit) {
-      dragTarget = { mode: 'handle', line: hit.line, which: hit.which };
+    const bodyHit = hitTestLineBody(pos);
+    if (bodyHit) {
+      dragTarget = {
+        line: bodyHit.line,
+        startWorld: { x: worldX(pos.x), y: worldY(pos.y) },
+        origP1: { ...bodyHit.line.p1 },
+        origP2: { ...bodyHit.line.p2 },
+      };
     } else {
-      const bodyHit = hitTestLineBody(pos);
-      if (bodyHit) {
-        dragTarget = {
-          mode: 'move',
-          line: bodyHit.line,
-          startWorld: { x: worldX(pos.x), y: worldY(pos.y) },
-          origP1: { ...bodyHit.line.p1 },
-          origP2: { ...bodyHit.line.p2 },
-        };
-      } else {
-        panState = { startScreen: pos, startPanX: view.panX, startPanY: view.panY };
-      }
+      panState = { startScreen: pos, startPanX: view.panX, startPanY: view.panY };
     }
   } else if (activePointers.size === 2 && !dragTarget) {
     const pts = Array.from(activePointers.values());
@@ -750,20 +716,14 @@ rightWrap.addEventListener('pointermove', (e) => {
   activePointers.set(e.pointerId, pos);
 
   if (dragTarget) {
+    // Translate both endpoints by the same snapped delta, so the direction
+    // p2-p1 (and therefore the slope) never changes — only c does.
     const step = niceStep(view.scale);
-    if (dragTarget.mode === 'handle') {
-      const wx = Math.round(worldX(pos.x) / step) * step;
-      const wy = Math.round(worldY(pos.y) / step) * step;
-      dragTarget.line[dragTarget.which] = { x: wx, y: wy };
-    } else {
-      // 'move': translate both endpoints by the same snapped delta, so the
-      // direction p2-p1 (and therefore the slope) never changes — only c does.
-      const curWorld = { x: worldX(pos.x), y: worldY(pos.y) };
-      const dx = Math.round((curWorld.x - dragTarget.startWorld.x) / step) * step;
-      const dy = Math.round((curWorld.y - dragTarget.startWorld.y) / step) * step;
-      dragTarget.line.p1 = { x: dragTarget.origP1.x + dx, y: dragTarget.origP1.y + dy };
-      dragTarget.line.p2 = { x: dragTarget.origP2.x + dx, y: dragTarget.origP2.y + dy };
-    }
+    const curWorld = { x: worldX(pos.x), y: worldY(pos.y) };
+    const dx = Math.round((curWorld.x - dragTarget.startWorld.x) / step) * step;
+    const dy = Math.round((curWorld.y - dragTarget.startWorld.y) / step) * step;
+    dragTarget.line.p1 = { x: dragTarget.origP1.x + dx, y: dragTarget.origP1.y + dy };
+    dragTarget.line.p2 = { x: dragTarget.origP2.x + dx, y: dragTarget.origP2.y + dy };
     recomputeCoeffs(dragTarget.line);
     scheduleGraphRedraw();
     updateFormulaItemDOM(dragTarget.line);

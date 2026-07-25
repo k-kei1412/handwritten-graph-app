@@ -32,6 +32,18 @@
   </div>
 </header>
 
+<div id="eraser-popover" class="popover hidden">
+  <div class="popover-row">
+    <label for="eraser-size">消しゴムの太さ</label>
+    <input type="range" id="eraser-size" min="8" max="60" value="22">
+    <span id="eraser-size-value">22px</span>
+  </div>
+  <div class="popover-row">
+    <button class="pill-btn-sm selected" id="eraser-mode-pixel" data-mode="pixel">ピクセル消しゴム</button>
+    <button class="pill-btn-sm" id="eraser-mode-stroke" data-mode="stroke">線分ごと削除</button>
+  </div>
+</div>
+
 <main id="workspace">
   <section id="left-pane" class="pane">
     <div class="pane-label">手書き数式エリア</div>

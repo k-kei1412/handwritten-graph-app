@@ -107,6 +107,57 @@ Object.entries(toolButtons).forEach(([name, btn]) => {
   btn.addEventListener('click', () => selectTool(name));
 });
 
+/* ---- eraser options popover (size + pixel/stroke mode), opened by double-tap ---- */
+const eraserPopover = document.getElementById('eraser-popover');
+const eraserSizeInput = document.getElementById('eraser-size');
+const eraserSizeValue = document.getElementById('eraser-size-value');
+const eraserModePixelBtn = document.getElementById('eraser-mode-pixel');
+const eraserModeStrokeBtn = document.getElementById('eraser-mode-stroke');
+
+function updateEraserModeButtons() {
+  eraserModePixelBtn.classList.toggle('selected', eraserMode === 'pixel');
+  eraserModeStrokeBtn.classList.toggle('selected', eraserMode === 'stroke');
+}
+
+function openEraserPopover() {
+  selectTool('eraser');
+  const rect = toolButtons.eraser.getBoundingClientRect();
+  eraserPopover.style.left = Math.round(rect.left) + 'px';
+  eraserPopover.style.top = Math.round(rect.bottom + 6) + 'px';
+  eraserSizeInput.value = eraserWidth;
+  eraserSizeValue.textContent = eraserWidth + 'px';
+  updateEraserModeButtons();
+  eraserPopover.classList.remove('hidden');
+}
+function closeEraserPopover() {
+  eraserPopover.classList.add('hidden');
+}
+
+toolButtons.eraser.addEventListener('dblclick', (e) => {
+  e.preventDefault();
+  openEraserPopover();
+});
+
+eraserSizeInput.addEventListener('input', () => {
+  eraserWidth = Number(eraserSizeInput.value);
+  eraserSizeValue.textContent = eraserWidth + 'px';
+});
+
+eraserModePixelBtn.addEventListener('click', () => {
+  eraserMode = 'pixel';
+  updateEraserModeButtons();
+});
+eraserModeStrokeBtn.addEventListener('click', () => {
+  eraserMode = 'stroke';
+  updateEraserModeButtons();
+});
+
+document.addEventListener('pointerdown', (e) => {
+  if (eraserPopover.classList.contains('hidden')) return;
+  if (eraserPopover.contains(e.target) || e.target === toolButtons.eraser) return;
+  closeEraserPopover();
+});
+
 /* ==========================================================================
    3. Ink canvas (handwriting) — stroke based so it survives resizes
    ========================================================================== */
@@ -120,6 +171,9 @@ const overlayCtx = overlayCanvas.getContext('2d');
 let inkDpr = 1;
 let strokes = []; // {tool, points:[{x,y}], width, color}
 let activeStroke = null;
+let eraserWidth = 22;
+let eraserMode = 'pixel'; // 'pixel' (destination-out) | 'stroke' (delete whole strokes)
+let isStrokeErasing = false;
 
 function fitCanvasToWrap(canvas, wrap) {
   const dpr = window.devicePixelRatio || 1;
@@ -163,6 +217,39 @@ function drawStrokeSegment(s) {
   inkCtx.moveTo(s.points[n - 2].x, s.points[n - 2].y);
   inkCtx.lineTo(s.points[n - 1].x, s.points[n - 1].y);
   inkCtx.stroke();
+}
+
+/* ---- stroke-deletion eraser mode: hit-test a pen stroke's polyline ---- */
+function distToSegment(p, a, b) {
+  const abx = b.x - a.x, aby = b.y - a.y;
+  const lenSq = abx * abx + aby * aby;
+  let t = lenSq > 1e-9 ? ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq : 0;
+  t = clamp(t, 0, 1);
+  return dist(p, { x: a.x + abx * t, y: a.y + aby * t });
+}
+
+function findStrokeAt(pos, threshold) {
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const s = strokes[i];
+    if (s.tool !== 'pen') continue;
+    const pts = s.points;
+    if (pts.length === 1) {
+      if (dist(pos, pts[0]) <= threshold) return i;
+      continue;
+    }
+    for (let j = 1; j < pts.length; j++) {
+      if (distToSegment(pos, pts[j - 1], pts[j]) <= threshold) return i;
+    }
+  }
+  return -1;
+}
+
+function eraseStrokeAt(pos) {
+  const threshold = Math.max(eraserWidth / 2, 14);
+  const idx = findStrokeAt(pos, threshold);
+  if (idx === -1) return;
+  strokes.splice(idx, 1);
+  redrawAllStrokes();
 }
 
 /* ---- selection state ---- */
@@ -220,10 +307,13 @@ leftWrap.addEventListener('pointerdown', (e) => {
   leftWrap.setPointerCapture(e.pointerId);
   const pos = getRelPos(e, leftWrap);
 
-  if (currentTool === 'pen' || currentTool === 'eraser') {
+  if (currentTool === 'eraser' && eraserMode === 'stroke') {
+    isStrokeErasing = true;
+    eraseStrokeAt(pos);
+  } else if (currentTool === 'pen' || currentTool === 'eraser') {
     activeStroke = {
       tool: currentTool,
-      width: currentTool === 'eraser' ? 22 : 3,
+      width: currentTool === 'eraser' ? eraserWidth : 3,
       points: [pos],
     };
     strokes.push(activeStroke);
@@ -245,6 +335,8 @@ leftWrap.addEventListener('pointermove', (e) => {
     const pos = getRelPos(e, leftWrap);
     activeStroke.points.push(pos);
     drawStrokeSegment(activeStroke);
+  } else if (isStrokeErasing) {
+    eraseStrokeAt(getRelPos(e, leftWrap));
   } else if (isSelecting && selection) {
     const pos = getRelPos(e, leftWrap);
     if (selection.type === 'rect') selection.rectEnd = pos;
@@ -256,6 +348,8 @@ leftWrap.addEventListener('pointermove', (e) => {
 function finishPointer(e) {
   if (activeStroke) {
     activeStroke = null;
+  } else if (isStrokeErasing) {
+    isStrokeErasing = false;
   } else if (isSelecting && selection) {
     isSelecting = false;
     const b = selectionBounds();
@@ -320,15 +414,16 @@ function extractSelectionPng() {
    ========================================================================== */
 
 const SYSTEM_PROMPT = `あなたは手書きの一次関数の数式を解析するアシスタントです。
-画像には手書きの数式が1つ含まれています。"y = ax + b" のような傾き切片形式、または "ax + by = c" のような一般形式のどちらかで書かれています。
-どちらの形式であっても、必ず一般形 a*x + b*y = c の係数 a, b, c に変換し、次のJSON形式のみを出力してください。
-説明文、前置き、マークダウンのコードブロック記号は一切含めないでください。JSONオブジェクトのみを返してください。
+画像には手書きの一次関数の数式が1つ以上含まれています。それぞれ "y = ax + b" のような傾き切片形式、または "ax + by = c" のような一般形式のどちらかで書かれています。
+見つかった数式それぞれについて、必ず一般形 a*x + b*y = c の係数 a, b, c に変換し、数式の数だけ要素を持つ次のJSON配列形式のみを出力してください。
+数式が1つしかない場合でも、要素数1の配列として返してください。
+説明文、前置き、マークダウンのコードブロック記号は一切含めないでください。JSON配列のみを返してください。
 
 出力フォーマット:
-{"type": "line", "a": 数値, "b": 数値, "c": 数値}
+[{"type": "line", "a": 数値, "b": 数値, "c": 数値}, ...]
 
-例1: 手書きが "y = 2x + 1" の場合 → 2x - y = -1 なので {"type": "line", "a": 2, "b": -1, "c": -1}
-例2: 手書きが "3x + 2y = 6" の場合 → {"type": "line", "a": 3, "b": 2, "c": 6}`;
+例1: 手書きが "y = 2x + 1" の1つだけの場合 → 2x - y = -1 なので [{"type": "line", "a": 2, "b": -1, "c": -1}]
+例2: 手書きが "3x + 2y = 6" と "y = -x + 4" の2つの場合 → [{"type": "line", "a": 3, "b": 2, "c": 6}, {"type": "line", "a": 1, "b": 1, "c": 4}]`;
 
 async function callGemini(base64Png) {
   const apiKey = getApiKey();
@@ -370,11 +465,17 @@ async function callGemini(base64Png) {
     throw new Error('Geminiの応答をJSONとして解析できませんでした: ' + cleaned.slice(0, 150));
   }
 
-  const a = Number(parsed.a), b = Number(parsed.b), c = Number(parsed.c);
-  if (!isFinite(a) || !isFinite(b) || !isFinite(c) || (a === 0 && b === 0)) {
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  const results = [];
+  for (const item of items) {
+    const a = Number(item?.a), b = Number(item?.b), c = Number(item?.c);
+    if (!isFinite(a) || !isFinite(b) || !isFinite(c) || (a === 0 && b === 0)) continue;
+    results.push({ a, b, c });
+  }
+  if (results.length === 0) {
     throw new Error('認識結果の係数が不正です。');
   }
-  return { a, b, c };
+  return results;
 }
 
 async function recognizeSelection() {
@@ -387,9 +488,11 @@ async function recognizeSelection() {
   document.getElementById('loading-overlay').classList.remove('hidden');
   setStatus('認識中...');
   try {
-    const { a, b, c } = await callGemini(png);
-    addLineFromCoeffs(a, b, c);
-    setStatus(`認識成功: ${fmtNum(a)}x + ${fmtNum(b)}y = ${fmtNum(c)}`);
+    const results = await callGemini(png);
+    for (const { a, b, c } of results) addLineFromCoeffs(a, b, c);
+    setStatus(results.length > 1
+      ? `認識成功: ${results.length}件の数式を認識しました`
+      : `認識成功: ${fmtNum(results[0].a)}x + ${fmtNum(results[0].b)}y = ${fmtNum(results[0].c)}`);
     cancelSelection();
   } catch (err) {
     console.error(err);

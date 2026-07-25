@@ -694,6 +694,25 @@ function hitTestHandle(pos) {
   return null;
 }
 
+// Hit-tests the line itself (not its endpoint handles), so it can be grabbed
+// and translated as a whole without changing its slope. Distance is computed
+// in world space and converted to screen pixels via view.scale — screenX/screenY
+// are a uniform scale (plus a y-flip), which preserves distances up to that
+// single scale factor, so this stays accurate at any zoom level.
+function hitTestLineBody(pos) {
+  const HIT_PX = 12;
+  const wx = worldX(pos.x), wy = worldY(pos.y);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const { a, b, c } = line;
+    const norm = Math.hypot(a, b);
+    if (norm < 1e-9) continue;
+    const worldDist = Math.abs(a * wx + b * wy - c) / norm;
+    if (worldDist * view.scale <= HIT_PX) return { line };
+  }
+  return null;
+}
+
 rightWrap.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   rightWrap.setPointerCapture(e.pointerId);
@@ -703,9 +722,20 @@ rightWrap.addEventListener('pointerdown', (e) => {
   if (activePointers.size === 1) {
     const hit = hitTestHandle(pos);
     if (hit) {
-      dragTarget = hit;
+      dragTarget = { mode: 'handle', line: hit.line, which: hit.which };
     } else {
-      panState = { startScreen: pos, startPanX: view.panX, startPanY: view.panY };
+      const bodyHit = hitTestLineBody(pos);
+      if (bodyHit) {
+        dragTarget = {
+          mode: 'move',
+          line: bodyHit.line,
+          startWorld: { x: worldX(pos.x), y: worldY(pos.y) },
+          origP1: { ...bodyHit.line.p1 },
+          origP2: { ...bodyHit.line.p2 },
+        };
+      } else {
+        panState = { startScreen: pos, startPanX: view.panX, startPanY: view.panY };
+      }
     }
   } else if (activePointers.size === 2 && !dragTarget) {
     const pts = Array.from(activePointers.values());
@@ -721,9 +751,19 @@ rightWrap.addEventListener('pointermove', (e) => {
 
   if (dragTarget) {
     const step = niceStep(view.scale);
-    const wx = Math.round(worldX(pos.x) / step) * step;
-    const wy = Math.round(worldY(pos.y) / step) * step;
-    dragTarget.line[dragTarget.which] = { x: wx, y: wy };
+    if (dragTarget.mode === 'handle') {
+      const wx = Math.round(worldX(pos.x) / step) * step;
+      const wy = Math.round(worldY(pos.y) / step) * step;
+      dragTarget.line[dragTarget.which] = { x: wx, y: wy };
+    } else {
+      // 'move': translate both endpoints by the same snapped delta, so the
+      // direction p2-p1 (and therefore the slope) never changes — only c does.
+      const curWorld = { x: worldX(pos.x), y: worldY(pos.y) };
+      const dx = Math.round((curWorld.x - dragTarget.startWorld.x) / step) * step;
+      const dy = Math.round((curWorld.y - dragTarget.startWorld.y) / step) * step;
+      dragTarget.line.p1 = { x: dragTarget.origP1.x + dx, y: dragTarget.origP1.y + dy };
+      dragTarget.line.p2 = { x: dragTarget.origP2.x + dx, y: dragTarget.origP2.y + dy };
+    }
     recomputeCoeffs(dragTarget.line);
     scheduleGraphRedraw();
     updateFormulaItemDOM(dragTarget.line);
@@ -806,6 +846,18 @@ function layoutAll() {
 
 window.addEventListener('resize', layoutAll);
 window.addEventListener('orientationchange', () => setTimeout(layoutAll, 200));
+
+// 'resize' only fires for actual browser-window size changes; it does NOT fire
+// when a sibling element (e.g. formula-panel growing/shrinking as lines are
+// added/removed) changes canvas-wrap's size via flex layout. That mismatch left
+// each canvas's backing store at its old (larger) size, so its stale bottom
+// strip never got cleared/redrawn and visibly overlapped the panel below it —
+// most noticeable while panning, since every pan frame only redraws within the
+// new-but-never-applied smaller size. Observing the wraps directly catches
+// any real box-size change, regardless of what caused it.
+const canvasWrapResizeObserver = new ResizeObserver(() => layoutAll());
+canvasWrapResizeObserver.observe(leftWrap);
+canvasWrapResizeObserver.observe(rightWrap);
 
 selectTool('pen');
 layoutAll();

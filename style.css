@@ -105,11 +105,38 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   position: relative;
 }
 
-#left-pane {
-  border-right: 2px solid #3a3d43;
+.pane-resizer {
+  flex: 0 0 8px;
+  background: #3a3d43;
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pane-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: #6a6f78;
+}
+
+.pane-resizer:hover,
+.pane-resizer.dragging {
+  background: #454a52;
+}
+
+.pane-resizer:hover::after,
+.pane-resizer.dragging::after {
+  background: #4c8bf5;
 }
 
 .pane-label {
@@ -287,11 +314,6 @@ canvas {
   font-variant-numeric: tabular-nums;
 }
 
-.formula-sub {
-  color: #8b909a;
-  font-size: 11px;
-}
-
 .formula-del {
   background: none;
   border: none;
@@ -394,8 +416,12 @@ canvas {
   #workspace {
     flex-direction: column;
   }
-  #left-pane {
-    border-right: none;
-    border-bottom: 2px solid #3a3d43;
+  .pane-resizer {
+    flex-basis: 8px;
+    cursor: row-resize;
+  }
+  .pane-resizer::after {
+    width: 44px;
+    height: 4px;
   }
 }

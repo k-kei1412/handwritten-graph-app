@@ -161,6 +161,33 @@
     ピクセル消しゴムモードでは従来通り`destination-out`のストロークが追加され、
     スライダーで設定した太さが反映されることも確認。
 
+### 機能追加: 消しゴムメニューを長押しに変更 / 手書き・グラフ欄のリサイズ / 数式パネルの副次表示を削除
+- 消しゴムメニューがiPadで開けない不具合:
+  - `dblclick` はマウスのダブルクリックでは発火するが、iPad Safariでは
+    ビューポート設定(`user-scalable=no`)でダブルタップズームを無効化している影響か、
+    ボタンへのダブルタップから合成される `dblclick` が安定して発火しないケースが
+    あった。
+  - `pointerdown`→(500ms後)`pointerdown`起点からの移動が
+    `LONG_PRESS_MOVE_TOLERANCE`(10px)を超えたらキャンセル、というタイマーベースの
+    長押し検出に変更。`dblclick`リスナーはマウスユーザー向けに残した。
+  - 検証: `setPointerCapture`合成イベント特有の`NotFoundError`を避けつつ
+    pointerdown→タイマー予約→小さな移動では継続→大きな移動でキャンセル、を
+    それぞれ確認。
+- 手書き欄・グラフ欄のリサイズ:
+  - `#workspace`内、両ペインの間に`#pane-resizer`(ドラッグハンドル)を追加。
+    ドラッグで`#left-pane`に`flex: 0 0 <pct>%`を設定し(`#right-pane`は
+    `flex: 1 1 auto`で残りを埋める)、横並び/縦積み(`@media max-width:820px`で
+    自動切り替え)のどちらでも同じロジックで機能するようにした
+    (`flex-basis`は常にflexコンテナの主軸に対して解決されるため)。
+  - 各ペイン内のcanvasは既存の`ResizeObserver`(`canvasWrapResizeObserver`)が
+    `canvas-wrap`のサイズ変化を検知して自動的に追従する。
+  - 検証: `setPointerCapture`を一時的にスタブ化した上でpointerdown/move/upを
+    合成イベントで発火させ、ドラッグ中に実際の幅がドラッグ位置の割合と一致すること、
+    ドラッグ終了後もその幅が保持されることを確認。
+- 数式パネルのグレーの副次表示(一般形 `ax+by=c`)を削除:
+  - `formula-sub`要素とそれを生成していたコードを削除し、`lineLabel()`も
+    傾き切片形式の文字列のみを返すよう簡略化。表示は主要な `y = ax + b` 形式のみに。
+
 ---
 
 ## 既知の制約・今後の課題

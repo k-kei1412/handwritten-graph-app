@@ -107,7 +107,7 @@ Object.entries(toolButtons).forEach(([name, btn]) => {
   btn.addEventListener('click', () => selectTool(name));
 });
 
-/* ---- eraser options popover (size + pixel/stroke mode), opened by double-tap ---- */
+/* ---- eraser options popover (size + pixel/stroke mode), opened by long-press ---- */
 const eraserPopover = document.getElementById('eraser-popover');
 const eraserSizeInput = document.getElementById('eraser-size');
 const eraserSizeValue = document.getElementById('eraser-size-value');
@@ -133,6 +133,42 @@ function closeEraserPopover() {
   eraserPopover.classList.add('hidden');
 }
 
+// iPad Safari doesn't reliably synthesize 'dblclick' from a double-tap on a
+// button (double-tap-to-zoom is disabled via the viewport meta tag, and that
+// suppression seems to take the synthetic dblclick with it), so the popover
+// is opened via long-press instead. A move past LONG_PRESS_MOVE_TOLERANCE
+// cancels it, so it doesn't fire while the user is just starting to draw.
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
+let eraserLongPressTimer = null;
+let eraserLongPressStart = null;
+
+function cancelEraserLongPress() {
+  if (eraserLongPressTimer) {
+    clearTimeout(eraserLongPressTimer);
+    eraserLongPressTimer = null;
+  }
+  eraserLongPressStart = null;
+}
+
+toolButtons.eraser.addEventListener('pointerdown', (e) => {
+  eraserLongPressStart = { x: e.clientX, y: e.clientY };
+  eraserLongPressTimer = setTimeout(() => {
+    eraserLongPressTimer = null;
+    openEraserPopover();
+  }, LONG_PRESS_MS);
+});
+toolButtons.eraser.addEventListener('pointermove', (e) => {
+  if (!eraserLongPressStart) return;
+  if (dist(eraserLongPressStart, { x: e.clientX, y: e.clientY }) > LONG_PRESS_MOVE_TOLERANCE) {
+    cancelEraserLongPress();
+  }
+});
+toolButtons.eraser.addEventListener('pointerup', cancelEraserLongPress);
+toolButtons.eraser.addEventListener('pointercancel', cancelEraserLongPress);
+toolButtons.eraser.addEventListener('pointerleave', cancelEraserLongPress);
+
+// kept for mouse users who do prefer a double-click
 toolButtons.eraser.addEventListener('dblclick', (e) => {
   e.preventDefault();
   openEraserPopover();
@@ -611,30 +647,24 @@ function recomputeCoeffs(line) {
 
 function lineLabel(line) {
   const { a, b, c } = line;
-  let main;
   if (Math.abs(b) > 1e-9) {
     const m = -a / b, k = c / b;
-    main = `y = ${fmtNum(m)}x ${k >= 0 ? '+' : '-'} ${fmtNum(Math.abs(k))}`;
-  } else {
-    main = `x = ${fmtNum(c / a)}`;
+    return `y = ${fmtNum(m)}x ${k >= 0 ? '+' : '-'} ${fmtNum(Math.abs(k))}`;
   }
-  const sub = `${fmtNum(a)}x ${b >= 0 ? '+' : '-'} ${fmtNum(Math.abs(b))}y = ${fmtNum(c)}`;
-  return { main, sub };
+  return `x = ${fmtNum(c / a)}`;
 }
 
 function renderFormulaPanel() {
   formulaPanel.innerHTML = '';
   emptyMsg.style.display = lines.length === 0 ? 'flex' : 'none';
   for (const line of lines) {
-    const { main, sub } = lineLabel(line);
     const item = document.createElement('div');
     item.className = 'formula-item';
     item.dataset.lineId = line.id;
     item.innerHTML = `
       <span class="formula-color" style="background:${line.color}"></span>
       <span class="formula-text">
-        <div class="formula-main">${main}</div>
-        <div class="formula-sub">${sub}</div>
+        <div class="formula-main">${lineLabel(line)}</div>
       </span>
       <button class="formula-del" title="削除">✕</button>`;
     item.querySelector('.formula-del').addEventListener('click', () => {
@@ -649,9 +679,7 @@ function renderFormulaPanel() {
 function updateFormulaItemDOM(line) {
   const item = formulaPanel.querySelector(`[data-line-id="${line.id}"]`);
   if (!item) return;
-  const { main, sub } = lineLabel(line);
-  item.querySelector('.formula-main').textContent = main;
-  item.querySelector('.formula-sub').textContent = sub;
+  item.querySelector('.formula-main').textContent = lineLabel(line);
 }
 
 let graphRedrawScheduled = false;
@@ -921,6 +949,48 @@ window.addEventListener('orientationchange', () => setTimeout(layoutAll, 200));
 const canvasWrapResizeObserver = new ResizeObserver(() => layoutAll());
 canvasWrapResizeObserver.observe(leftWrap);
 canvasWrapResizeObserver.observe(rightWrap);
+
+/* ---- draggable divider between the handwriting pane and the graph pane ---- */
+const workspace = document.getElementById('workspace');
+const paneResizer = document.getElementById('pane-resizer');
+const leftPaneEl = document.getElementById('left-pane');
+const rightPaneEl = document.getElementById('right-pane');
+const narrowLayoutMQ = window.matchMedia('(max-width: 820px)');
+let paneDragging = false;
+
+// Setting flex-basis (as a %) on left-pane and leaving right-pane as 1 1 auto
+// works for both layouts unchanged: flex-basis resolves against the main axis,
+// which is width in the row layout and height once the narrow media query
+// switches #workspace to flex-direction: column.
+function setLeftPanePercent(pct) {
+  pct = clamp(pct, 20, 80);
+  leftPaneEl.style.flex = `0 0 ${pct}%`;
+  rightPaneEl.style.flex = '1 1 auto';
+}
+
+paneResizer.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  paneResizer.setPointerCapture(e.pointerId);
+  paneDragging = true;
+  paneResizer.classList.add('dragging');
+});
+
+paneResizer.addEventListener('pointermove', (e) => {
+  if (!paneDragging) return;
+  const rect = workspace.getBoundingClientRect();
+  const pct = narrowLayoutMQ.matches
+    ? ((e.clientY - rect.top) / rect.height) * 100
+    : ((e.clientX - rect.left) / rect.width) * 100;
+  setLeftPanePercent(pct);
+});
+
+function stopPaneDrag() {
+  if (!paneDragging) return;
+  paneDragging = false;
+  paneResizer.classList.remove('dragging');
+}
+paneResizer.addEventListener('pointerup', stopPaneDrag);
+paneResizer.addEventListener('pointercancel', stopPaneDrag);
 
 selectTool('pen');
 layoutAll();

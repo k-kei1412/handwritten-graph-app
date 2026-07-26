@@ -575,6 +575,8 @@ async function recognizeSelection() {
 const rightWrap = document.querySelector('#right-pane .canvas-wrap');
 const graphCanvas = document.getElementById('graph-canvas');
 const graphCtx = graphCanvas.getContext('2d');
+const graphInkCanvas = document.getElementById('graph-ink-canvas');
+const graphInkCtx = graphInkCanvas.getContext('2d');
 const formulaPanel = document.getElementById('formula-panel');
 const emptyMsg = document.getElementById('graph-empty-msg');
 
@@ -582,6 +584,62 @@ let graphDpr = 1;
 let view = { scale: 60, panX: null, panY: null, initialized: false };
 let lines = []; // {id, p1:{x,y}, p2:{x,y}, a,b,c, color}
 let lineIdSeq = 1;
+
+/* ---- graph lock + markup: when locked, pan/zoom/line-drag are disabled and
+   pointer input instead draws freehand annotation strokes on top of the graph ---- */
+const ANNOTATION_COLOR = '#ff4757';
+const ANNOTATION_WIDTH = 3;
+let graphLocked = false;
+let graphInkDpr = 1;
+let annotationStrokes = []; // {points:[{x,y}], width, color}
+let activeAnnotationStroke = null;
+
+const btnLockGraph = document.getElementById('btn-lock-graph');
+const btnClearAnnotation = document.getElementById('btn-clear-annotation');
+
+function setGraphLocked(locked) {
+  graphLocked = locked;
+  btnLockGraph.classList.toggle('selected', locked);
+  btnLockGraph.textContent = locked ? '🔓 固定解除' : '🔒 グラフ固定';
+  rightWrap.classList.toggle('locked', locked);
+}
+btnLockGraph.addEventListener('click', () => setGraphLocked(!graphLocked));
+btnClearAnnotation.addEventListener('click', () => {
+  annotationStrokes = [];
+  redrawAnnotations();
+});
+
+function redrawAnnotations() {
+  graphInkCtx.setTransform(graphInkDpr, 0, 0, graphInkDpr, 0, 0);
+  graphInkCtx.clearRect(0, 0, graphInkCanvas.width / graphInkDpr, graphInkCanvas.height / graphInkDpr);
+  for (const s of annotationStrokes) drawAnnotationPath(s);
+}
+
+function drawAnnotationPath(s) {
+  if (s.points.length < 1) return;
+  graphInkCtx.strokeStyle = s.color;
+  graphInkCtx.lineWidth = s.width;
+  graphInkCtx.lineCap = 'round';
+  graphInkCtx.lineJoin = 'round';
+  graphInkCtx.beginPath();
+  graphInkCtx.moveTo(s.points[0].x, s.points[0].y);
+  for (let i = 1; i < s.points.length; i++) graphInkCtx.lineTo(s.points[i].x, s.points[i].y);
+  if (s.points.length === 1) graphInkCtx.lineTo(s.points[0].x + 0.1, s.points[0].y + 0.1);
+  graphInkCtx.stroke();
+}
+
+function drawAnnotationSegment(s) {
+  const n = s.points.length;
+  if (n < 2) return;
+  graphInkCtx.strokeStyle = s.color;
+  graphInkCtx.lineWidth = s.width;
+  graphInkCtx.lineCap = 'round';
+  graphInkCtx.lineJoin = 'round';
+  graphInkCtx.beginPath();
+  graphInkCtx.moveTo(s.points[n - 2].x, s.points[n - 2].y);
+  graphInkCtx.lineTo(s.points[n - 1].x, s.points[n - 1].y);
+  graphInkCtx.stroke();
+}
 
 function initViewIfNeeded() {
   const rect = rightWrap.getBoundingClientRect();
@@ -855,6 +913,14 @@ rightWrap.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   rightWrap.setPointerCapture(e.pointerId);
   const pos = getRelPos(e, rightWrap);
+
+  if (graphLocked) {
+    activeAnnotationStroke = { points: [pos], width: ANNOTATION_WIDTH, color: ANNOTATION_COLOR };
+    annotationStrokes.push(activeAnnotationStroke);
+    drawAnnotationPath(activeAnnotationStroke);
+    return;
+  }
+
   activePointers.set(e.pointerId, pos);
 
   if (activePointers.size === 1) {
@@ -877,6 +943,14 @@ rightWrap.addEventListener('pointerdown', (e) => {
 });
 
 rightWrap.addEventListener('pointermove', (e) => {
+  if (graphLocked) {
+    if (!activeAnnotationStroke) return;
+    const pos = getRelPos(e, rightWrap);
+    activeAnnotationStroke.points.push(pos);
+    drawAnnotationSegment(activeAnnotationStroke);
+    return;
+  }
+
   if (!activePointers.has(e.pointerId)) return;
   const pos = getRelPos(e, rightWrap);
   activePointers.set(e.pointerId, pos);
@@ -915,6 +989,10 @@ rightWrap.addEventListener('pointermove', (e) => {
 });
 
 function releasePointer(e) {
+  if (graphLocked) {
+    activeAnnotationStroke = null;
+    return;
+  }
   activePointers.delete(e.pointerId);
   if (activePointers.size === 0) {
     dragTarget = null;
@@ -932,6 +1010,7 @@ rightWrap.addEventListener('pointercancel', releasePointer);
 /* wheel zoom (trackpad / mouse, useful when testing on desktop Safari/Chrome) */
 rightWrap.addEventListener('wheel', (e) => {
   e.preventDefault();
+  if (graphLocked) return;
   const rect = rightWrap.getBoundingClientRect();
   const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
   const wx = worldX(pos.x), wy = worldY(pos.y);
@@ -968,6 +1047,9 @@ function layoutAll() {
   graphDpr = fitCanvasToWrap(graphCanvas, rightWrap);
   initViewIfNeeded();
   drawGraph();
+
+  graphInkDpr = fitCanvasToWrap(graphInkCanvas, rightWrap);
+  redrawAnnotations();
 }
 
 window.addEventListener('resize', layoutAll);
@@ -998,7 +1080,7 @@ let paneDragging = false;
 // which is width in the row layout and height once the narrow media query
 // switches #workspace to flex-direction: column.
 function setLeftPanePercent(pct) {
-  pct = clamp(pct, 20, 80);
+  pct = clamp(pct, 10, 80);
   leftPaneEl.style.flex = `0 0 ${pct}%`;
   rightPaneEl.style.flex = '1 1 auto';
 }

@@ -110,7 +110,7 @@ body {
 }
 
 .pane-resizer {
-  flex: 0 0 8px;
+  flex: 0 0 20px;
   background: #3a3d43;
   position: relative;
   cursor: col-resize;
@@ -123,9 +123,9 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 4px;
+  width: 6px;
   height: 44px;
-  border-radius: 2px;
+  border-radius: 3px;
   background: #6a6f78;
 }
 
@@ -168,8 +168,13 @@ canvas {
   display: block;
 }
 
-#overlay-canvas {
+#overlay-canvas,
+#graph-ink-canvas {
   pointer-events: none;
+}
+
+#right-pane .canvas-wrap.locked {
+  cursor: crosshair;
 }
 
 .empty-msg {
@@ -417,7 +422,7 @@ canvas {
     flex-direction: column;
   }
   .pane-resizer {
-    flex-basis: 8px;
+    flex-basis: 20px;
     cursor: row-resize;
   }
   .pane-resizer::after {

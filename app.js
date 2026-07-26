@@ -16,6 +16,35 @@ function fmtNum(n) {
   return (Object.is(r, -0) ? 0 : r).toString();
 }
 
+// Best rational approximation of a non-negative number via continued fractions,
+// so recognized slopes/intercepts like 1/2, 1/3 can be shown as fractions
+// instead of their (sometimes long) decimal expansion.
+function toFraction(x, maxDen = 1000, eps = 1e-9) {
+  let a0 = Math.floor(x);
+  let p0 = 1, q0 = 0; // convergent p_{-1}/q_{-1}
+  let p1 = a0, q1 = 1; // convergent p_0/q_0
+  let r = x - a0;
+  while (r > eps && Math.abs(x - p1 / q1) > eps) {
+    const inv = 1 / r;
+    const a = Math.floor(inv);
+    const p2 = a * p1 + p0, q2 = a * q1 + q0;
+    if (q2 > maxDen) break;
+    p0 = p1; q0 = q1;
+    p1 = p2; q1 = q2;
+    r = inv - a;
+  }
+  return { num: p1, den: q1 };
+}
+
+// Formats a non-negative number as an integer when it's whole, otherwise as
+// "p/q" using its simplest fractional approximation.
+function fmtFracAbs(n) {
+  if (!isFinite(n)) return '∞';
+  if (Math.abs(n) < 1e-9) return '0';
+  const { num, den } = toFraction(n);
+  return den === 1 ? fmtNum(num) : `${num}/${den}`;
+}
+
 function getRelPos(evt, el) {
   const rect = el.getBoundingClientRect();
   return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
@@ -649,9 +678,15 @@ function lineLabel(line) {
   const { a, b, c } = line;
   if (Math.abs(b) > 1e-9) {
     const m = -a / b, k = c / b;
-    return `y = ${fmtNum(m)}x ${k >= 0 ? '+' : '-'} ${fmtNum(Math.abs(k))}`;
+    const mFrac = fmtFracAbs(Math.abs(m));
+    const xTerm = mFrac === '1' ? 'x' : `${mFrac}x`;
+    const sign = m < 0 ? '-' : '';
+    const kFrac = fmtFracAbs(Math.abs(k));
+    if (kFrac === '0') return `y = ${sign}${xTerm}`;
+    return `y = ${sign}${xTerm} ${k >= 0 ? '+' : '-'} ${kFrac}`;
   }
-  return `x = ${fmtNum(c / a)}`;
+  const xVal = c / a;
+  return `x = ${xVal < 0 ? '-' : ''}${fmtFracAbs(Math.abs(xVal))}`;
 }
 
 function renderFormulaPanel() {

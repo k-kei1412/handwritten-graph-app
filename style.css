@@ -177,6 +177,54 @@ canvas {
   cursor: crosshair;
 }
 
+/* ---------- Graph markup FAB + color/eraser popover ---------- */
+.markup-fab {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.85);
+  background: #ff4757;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  z-index: 10;
+  touch-action: manipulation;
+}
+
+.markup-fab.hidden {
+  display: none;
+}
+
+.markup-colors {
+  justify-content: center;
+}
+
+.color-swatch {
+  appearance: none;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+  touch-action: manipulation;
+}
+
+.color-swatch.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px #4c8bf5;
+}
+
 .empty-msg {
   position: absolute;
   inset: 0;

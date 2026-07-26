@@ -73,6 +73,18 @@
       <canvas id="graph-canvas"></canvas>
       <canvas id="graph-ink-canvas"></canvas>
       <div id="graph-empty-msg" class="empty-msg">左側で数式を手書きし、選択→「数式認識」を押すとここに直線が表示されます。</div>
+      <button id="btn-markup-pen" class="markup-fab hidden" title="マークアップの色/消しゴム">✏️</button>
+      <div id="markup-popover" class="popover hidden">
+        <div class="popover-row markup-colors">
+          <button class="color-swatch selected" data-color="#ff4757" style="background:#ff4757" title="赤"></button>
+          <button class="color-swatch" data-color="#4c8bf5" style="background:#4c8bf5" title="青"></button>
+          <button class="color-swatch" data-color="#2ed573" style="background:#2ed573" title="緑"></button>
+          <button class="color-swatch" data-color="#f5e14c" style="background:#f5e14c" title="黄"></button>
+        </div>
+        <div class="popover-row">
+          <button class="pill-btn-sm" id="btn-markup-eraser">🧹 消しゴム</button>
+        </div>
+      </div>
     </div>
     <div id="formula-panel" class="formula-panel"></div>
   </section>

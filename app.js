@@ -587,27 +587,102 @@ let lineIdSeq = 1;
 
 /* ---- graph lock + markup: when locked, pan/zoom/line-drag are disabled and
    pointer input instead draws freehand annotation strokes on top of the graph ---- */
-const ANNOTATION_COLOR = '#ff4757';
 const ANNOTATION_WIDTH = 3;
+const ANNOTATION_ERASE_THRESHOLD = 14;
 let graphLocked = false;
 let graphInkDpr = 1;
 let annotationStrokes = []; // {points:[{x,y}], width, color}
 let activeAnnotationStroke = null;
+let markupTool = 'pen'; // 'pen' | 'eraser'
+let markupColor = '#ff4757';
+let isAnnotationErasing = false;
 
 const btnLockGraph = document.getElementById('btn-lock-graph');
 const btnClearAnnotation = document.getElementById('btn-clear-annotation');
+const markupFab = document.getElementById('btn-markup-pen');
+const markupPopover = document.getElementById('markup-popover');
+const btnMarkupEraser = document.getElementById('btn-markup-eraser');
+const markupColorButtons = Array.from(document.querySelectorAll('#markup-popover .color-swatch'));
 
 function setGraphLocked(locked) {
   graphLocked = locked;
   btnLockGraph.classList.toggle('selected', locked);
   btnLockGraph.textContent = locked ? '🔓 固定解除' : '🔒 グラフ固定';
   rightWrap.classList.toggle('locked', locked);
+  markupFab.classList.toggle('hidden', !locked);
+  if (!locked) closeMarkupPopover();
 }
 btnLockGraph.addEventListener('click', () => setGraphLocked(!graphLocked));
 btnClearAnnotation.addEventListener('click', () => {
   annotationStrokes = [];
   redrawAnnotations();
 });
+
+function updateMarkupFab() {
+  if (markupTool === 'eraser') {
+    markupFab.textContent = '🧹';
+    markupFab.style.background = '#33363c';
+  } else {
+    markupFab.textContent = '✏️';
+    markupFab.style.background = markupColor;
+  }
+}
+
+function openMarkupPopover() {
+  markupPopover.classList.remove('hidden');
+  const rect = markupFab.getBoundingClientRect();
+  markupPopover.style.left = Math.round(rect.right - markupPopover.offsetWidth) + 'px';
+  markupPopover.style.top = Math.round(rect.bottom + 8) + 'px';
+}
+function closeMarkupPopover() {
+  markupPopover.classList.add('hidden');
+}
+
+markupFab.addEventListener('click', () => {
+  if (markupPopover.classList.contains('hidden')) openMarkupPopover();
+  else closeMarkupPopover();
+});
+
+markupColorButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    markupColor = btn.dataset.color;
+    markupTool = 'pen';
+    markupColorButtons.forEach((b) => b.classList.toggle('selected', b === btn));
+    updateMarkupFab();
+    closeMarkupPopover();
+  });
+});
+
+btnMarkupEraser.addEventListener('click', () => {
+  markupTool = 'eraser';
+  updateMarkupFab();
+  closeMarkupPopover();
+});
+
+document.addEventListener('pointerdown', (e) => {
+  if (markupPopover.classList.contains('hidden')) return;
+  if (markupPopover.contains(e.target) || e.target === markupFab) return;
+  closeMarkupPopover();
+});
+
+function eraseAnnotationStrokeAt(pos) {
+  for (let i = annotationStrokes.length - 1; i >= 0; i--) {
+    const pts = annotationStrokes[i].points;
+    let hit = false;
+    if (pts.length === 1) {
+      hit = dist(pos, pts[0]) <= ANNOTATION_ERASE_THRESHOLD;
+    } else {
+      for (let j = 1; j < pts.length; j++) {
+        if (distToSegment(pos, pts[j - 1], pts[j]) <= ANNOTATION_ERASE_THRESHOLD) { hit = true; break; }
+      }
+    }
+    if (hit) {
+      annotationStrokes.splice(i, 1);
+      redrawAnnotations();
+      return;
+    }
+  }
+}
 
 function redrawAnnotations() {
   graphInkCtx.setTransform(graphInkDpr, 0, 0, graphInkDpr, 0, 0);
@@ -910,14 +985,20 @@ function hitTestLineBody(pos) {
 }
 
 rightWrap.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('#btn-markup-pen, #markup-popover')) return;
   e.preventDefault();
   rightWrap.setPointerCapture(e.pointerId);
   const pos = getRelPos(e, rightWrap);
 
   if (graphLocked) {
-    activeAnnotationStroke = { points: [pos], width: ANNOTATION_WIDTH, color: ANNOTATION_COLOR };
-    annotationStrokes.push(activeAnnotationStroke);
-    drawAnnotationPath(activeAnnotationStroke);
+    if (markupTool === 'eraser') {
+      isAnnotationErasing = true;
+      eraseAnnotationStrokeAt(pos);
+    } else {
+      activeAnnotationStroke = { points: [pos], width: ANNOTATION_WIDTH, color: markupColor };
+      annotationStrokes.push(activeAnnotationStroke);
+      drawAnnotationPath(activeAnnotationStroke);
+    }
     return;
   }
 
@@ -944,10 +1025,13 @@ rightWrap.addEventListener('pointerdown', (e) => {
 
 rightWrap.addEventListener('pointermove', (e) => {
   if (graphLocked) {
-    if (!activeAnnotationStroke) return;
     const pos = getRelPos(e, rightWrap);
-    activeAnnotationStroke.points.push(pos);
-    drawAnnotationSegment(activeAnnotationStroke);
+    if (markupTool === 'eraser') {
+      if (isAnnotationErasing) eraseAnnotationStrokeAt(pos);
+    } else if (activeAnnotationStroke) {
+      activeAnnotationStroke.points.push(pos);
+      drawAnnotationSegment(activeAnnotationStroke);
+    }
     return;
   }
 
@@ -991,6 +1075,7 @@ rightWrap.addEventListener('pointermove', (e) => {
 function releasePointer(e) {
   if (graphLocked) {
     activeAnnotationStroke = null;
+    isAnnotationErasing = false;
     return;
   }
   activePointers.delete(e.pointerId);
